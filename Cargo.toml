@@ -3,6 +3,8 @@ name = "shard"
 version = "0.1.0"
 authors = ["Michael Lazear <lazear@scripps.edu>"]
 description = "Shard Library"
+repository = "https://github.com/lazear/shard"
 license = "MIT"
+readme = "README.md"
 
 [dependencies]
