@@ -150,12 +150,12 @@ impl Lexer {
             // numbers must start with a number...
             '0'...'9' => Ok(State::Number),
             // Literals must start with a single apostrophe
-            '\'' => Ok(State::Escape(false)),
+            '`' => Ok(State::Escape(false)),
             // Whitespace, return None
             ' ' | '\t' | '\n' => Ok(State::None),
             // Other UTF-8 character
             _ => {
-                let s = "<>|-+()[].,;*&|/";
+                let s = "<>|-+()[].,;*&|/=";
                 if let Some(index) = s.find(c) {
                     if index < 4 {
                         Ok(State::Disambiguate)
@@ -179,7 +179,6 @@ impl Lexer {
             self.column += 1;
         };
 
-        let last = self.last_char;
         let state = match self.state {
             // Current state is comment, switch to None if newline
             State::Comment => {
@@ -196,6 +195,9 @@ impl Lexer {
                     State::None | State::Comment => (),
                     State::Text | State::Number => {
                         self.buffer.push(c);
+                    }
+                    State::Operator => {
+                        self.tokens.push(Token::from_char(c).expect(&format!("Illegal character {} on line {}, column {} found. Expected valid operator", c, self.line, self.column)));
                     }
                     _ => (),
                 };
@@ -214,7 +216,7 @@ impl Lexer {
                         State::None
                     }
                     // Invalid character
-                    _ => return Err(format!("Illegal character {} on line {}, column {} found. Expected valid identifier, a-Z|0-9|_", c, self.line, self.column))
+                    _ => return Err(format!("Illegal character '{}' on line {}, column {} found. Expected valid identifier, a-Z|0-9|_", c, self.line, self.column))
                 }
             },
 
@@ -239,8 +241,8 @@ impl Lexer {
 
             State::Escape(escaped) => {
                 match (escaped, c) {
-                    (false, '\'') => State::Escape(false),
-                    (true, '\'') => {
+                    (false, '`') => State::Escape(false),
+                    (true, '`') => {
                         let word: String = mem::replace(&mut self.buffer, String::new());
                         self.tokens.push(Token::StringLiteral(word));
                         State::None
@@ -254,16 +256,22 @@ impl Lexer {
             },
             
             State::Disambiguate => {
-                State::None
+                match (self.last_char, c) {
+                    ('-', '-') => State::Comment,
+                    ('<', '>') => {
+                        self.tokens.push(Token::NOTEQUAL);
+                        State::None
+                    },
+                    (_, _) => State::None
+                }
             },
 
             State::Operator => {
                 State::None
             },
-            
-
         };
         self.state = state.clone();
+        self.last_char = c;
         Ok(state)        
     }
 }
@@ -273,19 +281,23 @@ mod tests {
     use super::*;
     #[test]
     fn from_char() {
+        // Valid character
         assert_eq!(Token::from_char('.'), Some(Token::DOT));
+        // Invalid character
         assert_eq!(Token::from_char('#'), None);
     }
 
     #[test]
     fn from_str() {
+        // Everything is case insensitive
         assert_eq!(Token::from_str("SEleCT"), Token::SELECT);
         assert_eq!(Token::from_str("DROP"), Token::DROP);
-        // All identifiers are lower case
+        // All identifiers are stored as lower case
         assert_eq!(Token::from_str("User_id"), Token::Identifier("user_id".into()));
     }
 
     #[test]
+    /// Test state transitions from State::None -> State::_
     fn next_state() {
         let lex = Lexer {
             state: State::None,
@@ -298,10 +310,13 @@ mod tests {
         assert_eq!(lex.next_state('.'), Ok(State::Operator));
         assert_eq!(lex.next_state('a'), Ok(State::Text));
         assert_eq!(lex.next_state('9'), Ok(State::Number));
-        assert_eq!(lex.next_state('\''), Ok(State::Escape(false)));
+        assert_eq!(lex.next_state('`'), Ok(State::Escape(false)));
+        assert_eq!(lex.next_state('<'), Ok(State::Disambiguate));
+        assert_eq!(lex.next_state('='), Ok(State::Operator));
     }
 
     #[test]
+    /// Test lexing of an identifier
     fn feed_identifier() {
         let mut lex = Lexer {
             state: State::None,
@@ -313,7 +328,6 @@ mod tests {
         };
 
         let s = "my_table";
-        // Try lexing an identifier
         for c in s.chars() {
             assert_eq!(lex.feed(c), Ok(State::Text));
         }
@@ -323,6 +337,7 @@ mod tests {
     }
 
     #[test]
+    /// Test lexing of a literal
     fn feed_literal() {
         let mut lex = Lexer {
             state: State::None,
@@ -334,12 +349,55 @@ mod tests {
         };
         
         // Try lexing a string literal
-        assert_eq!(lex.feed('\''), Ok(State::Escape(false)));
+        assert_eq!(lex.feed('`'), Ok(State::Escape(false)));
         for c in "user_id".chars() {
             assert_eq!(lex.feed(c), Ok(State::Escape(true)));
         };
-        assert_eq!(lex.feed('\''), Ok(State::None));
+        assert_eq!(lex.feed('`'), Ok(State::None));
         assert_eq!(lex.tokens.pop(), Some(Token::StringLiteral("user_id".into())));
         assert_eq!(lex.column, 9);
+    }
+
+    #[test]
+    fn feed_comment() {
+        let mut lex = Lexer {
+            state: State::None,
+            tokens: Vec::new(),
+            last_char: ' ',
+            buffer: String::new(),
+            column: 0,
+            line: 0,
+        };
+        assert_eq!(lex.feed('-'), Ok(State::Disambiguate));
+        assert_eq!(lex.feed('-'), Ok(State::Comment));
+        for c in "line comment".chars() {
+            assert_eq!(lex.feed(c), Ok(State::Comment));
+        };
+        assert_eq!(lex.feed('\n'), Ok(State::None));
+    }
+
+    #[test]
+    fn feed_statement() {
+        let mut lex = Lexer {
+            state: State::None,
+            tokens: Vec::new(),
+            last_char: ' ',
+            buffer: String::new(),
+            column: 0,
+            line: 0,
+        };
+
+        let query = "SELECT * FROM my_table WHERE name = `user1`";
+        for c in query.chars() {
+            lex.feed(c).unwrap();
+        }
+        assert_eq!(lex.tokens.pop(), Some(Token::StringLiteral("user1".into())));
+        assert_eq!(lex.tokens.pop(), Some(Token::EQUAL));
+        assert_eq!(lex.tokens.pop(), Some(Token::Identifier("name".into())));
+        assert_eq!(lex.tokens.pop(), Some(Token::WHERE));
+        assert_eq!(lex.tokens.pop(), Some(Token::Identifier("my_table".into())));
+        assert_eq!(lex.tokens.pop(), Some(Token::FROM));
+        assert_eq!(lex.tokens.pop(), Some(Token::ASTERISK));
+        assert_eq!(lex.tokens.pop(), Some(Token::SELECT));
     }
 }
