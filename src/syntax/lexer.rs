@@ -71,7 +71,7 @@ impl Lexer {
                     if index < 4 {
                         Ok(State::Disambiguate)
                     } else {
-                        Ok(State::Operator)
+                        Ok(State::None)
                     }
                 } else {
                     self.error(c, "<>|-+()[].,*&|/=")
@@ -279,12 +279,12 @@ mod tests {
             column: 0,
             line: 0,
         };
-        assert_eq!(lex.next_state('.'), Ok(State::Operator));
+        assert_eq!(lex.next_state('.'), Ok(State::None));
         assert_eq!(lex.next_state('a'), Ok(State::Text));
         assert_eq!(lex.next_state('9'), Ok(State::Number));
         assert_eq!(lex.next_state('`'), Ok(State::Escape(false)));
         assert_eq!(lex.next_state('<'), Ok(State::Disambiguate));
-        assert_eq!(lex.next_state('='), Ok(State::Operator));
+        assert_eq!(lex.next_state('='), Ok(State::None));
     }
 
     #[test]
