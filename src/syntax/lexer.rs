@@ -1,66 +1,12 @@
+//! Lexical analysis module
+
 #![allow(dead_code)]
 use std::string::String;
 use std::mem;
-use self::Token::*;
+use super::token::*;
+use super::parser::Parser;
 
 type LexerResult<T> = Result<T, String>;
-
-/// Lexical token
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Token {
-    // keywords
-    SELECT,
-    FROM,
-    WHERE,
-    ORDER,
-    INSERT,
-    INTO,
-    CREATE,
-    TABLE,
-    DROP,
-    IF,
-    NOT,
-    NULL,
-    DEFAULT,
-    SERIAL,
-
-    // types
-    INTEGER,
-    TEXT,
-    FLOAT,
-    BLOB,
-
-    // operators
-    EQUAL,
-    NOTEQUAL,
-    LESSTHAN,
-    LESSTHANOREQUAL,
-    GREATERTHAN,
-    GREATERTHANOREQUAL,
-    PLUS,
-    MINUS,
-    FORWARDSLASH,
-
-    // blocks
-    LEFTPAREN,
-    RIGHTPAREN,
-    LEFTBRACKET,
-    RIGHTBRACKET,
-
-    // other
-    DOT,
-    COMMA,
-    SEMICOLON,
-    ASTERISK,
-    AMPERSAND,
-    PIPE,
-    DOUBLEPIPE,
-    
-    // literals
-    StringLiteral(String),
-    NumberLiteral(String),
-    Identifier(String),
-}
 
 #[derive(Debug, PartialEq, Clone)]
 enum State {
@@ -74,66 +20,30 @@ enum State {
 }
 
 #[derive(Debug)]
-struct Lexer {
+/// Finite state machine for lexical analysis of queries
+pub struct Lexer {
+    // List of tokens we have parsed
     tokens: Vec<Token>,
+    // Last read character
     last_char: char,
+    // Word/number we are currently lexing
     buffer: String,
+    // Current lexer state
     state: State,
+    // Line number
     line: usize,
+    // Column number
     column: usize,
 }
 
-impl Token {
-    fn from_char(c: char) -> Option<Token> {
-        Some(match c {
-            '=' => EQUAL,
-            '<' => LESSTHAN,
-            '>' => GREATERTHAN,
-            '+' => PLUS,
-            '-' => MINUS,
-            '(' => LEFTPAREN,
-            '[' => LEFTBRACKET,
-            ')' => RIGHTPAREN,
-            ']' => RIGHTBRACKET,
-            '.' => DOT,
-            ',' => COMMA,
-            ';' => SEMICOLON,
-            '*' => ASTERISK,
-            '&' => AMPERSAND,
-            '|' => PIPE,
-            '/' => FORWARDSLASH,       
-            _ => return None,
-        })
-    }
-
-    fn from_str(s: &str) -> Token {
-        let word: String = s.chars().flat_map(|c| c.to_lowercase()).collect();
-        match word.as_ref() {
-            "select" => SELECT,
-            "from" => FROM,
-            "where" => WHERE,
-            "order" => ORDER,
-            "insert" => INSERT,
-            "into" => INTO,
-            "create" => CREATE,
-            "table" => TABLE,
-            "drop" => DROP,
-            "if" => IF,
-            //"exists" => EXISTS,
-            "not" => NOT,
-            "null" => NULL,
-            "default" => DEFAULT,
-            "int" | "integer" => INTEGER,
-            "text" => TEXT,
-            "float" => FLOAT,
-            "blob" => BLOB,
-            "serial" => SERIAL,
-            _ => Identifier (word),
-        } 
-    }
-}
-
 impl Lexer {
+    /// Return an error message
+    fn error(&self, c: char, expected: &str) -> LexerResult<State> {
+        Err(format!("Illegal character `{}` encountered on line {}, column {} during lexical analysis. Expected {}", 
+            c, self.line, self.column, expected))
+    }
+
+    /// Retrieve the last lexed token
     fn last_token(&self) -> Option<Token> {
         if self.tokens.len() > 0 {
             Some(self.tokens[self.tokens.len() - 1].clone())
@@ -154,6 +64,7 @@ impl Lexer {
             // Whitespace, return None
             ' ' | '\t' | '\n' => Ok(State::None),
             // Other UTF-8 character
+            ';'  => Ok(State::None),
             _ => {
                 let s = "<>|-+()[].,;*&|/=";
                 if let Some(index) = s.find(c) {
@@ -163,13 +74,14 @@ impl Lexer {
                         Ok(State::Operator)
                     }
                 } else {
-                    Err(format!("Illegal character {} on line {}, column {} found.", c, self.line, self.column))
+                    self.error(c, "<>|-+()[].,*&|/=")
                 }
 
             }
         }
     }
 
+    /// Feed a character into the lexer. Finite state machine
     fn feed(&mut self, c: char) -> LexerResult<State> {
         // Update line and column number
         if c == '\n' {
@@ -192,12 +104,17 @@ impl Lexer {
             State::None => {
                 let next = self.next_state(c)?;
                 match next {
-                    State::None | State::Comment => (),
+                    State::None => {
+                        if let Some(tok) = Token::from_char(c) {
+                            self.tokens.push(tok);
+                        }
+                    }
+                    State::Comment => (),
                     State::Text | State::Number => {
                         self.buffer.push(c);
                     }
                     State::Operator => {
-                        self.tokens.push(Token::from_char(c).expect(&format!("Illegal character {} on line {}, column {} found. Expected valid operator", c, self.line, self.column)));
+                        self.tokens.push(Token::from_char(c).expect(&format!("Illegal character `{}` encountered on line {}, column {} during lexical analysis. Expected valid operator", c, self.line, self.column)));
                     }
                     _ => (),
                 };
@@ -206,45 +123,66 @@ impl Lexer {
             // Current state is text, so we are reading a string
             State::Text => {
                 match self.next_state(c)? {
+                    // Continue reading into buffer
                     State::Text | State::Number => {
                         self.buffer.push(c);
                         State::Text
                     },
+                    // Whitespace
                     State::None => {
                         let word: String = mem::replace(&mut self.buffer, String::new());
                         self.tokens.push(Token::from_str(&word));
+                        if let Some(tok) = Token::from_char(c) {
+                            self.tokens.push(tok);
+                        }
                         State::None
                     }
                     // Invalid character
-                    _ => return Err(format!("Illegal character '{}' on line {}, column {} found. Expected valid identifier, a-Z|0-9|_", c, self.line, self.column))
+                    _ => return self.error(c, "valid identifier [a-Z|0-9|_]")
                 }
             },
 
             // Current state is number, so only acceptable chars are 0-9 and '.'
             State::Number => {
                 match self.next_state(c)? {
+                    // Continue reading into buffer
                     State::Number => {
                         self.buffer.push(c);
                         State::Number
                     },
+                    // Check for decimal place
                     State::Operator => {
                         if c == '.' {
                             self.buffer.push(c);
                             State::Number
                         } else {
-                            return Err(format!("Illegal character {} on line {}, column {} found. Expected valid number, 0-9.", c, self.line, self.column))
+                            // Invalid character
+                            return self.error(c, "valid number [0-9|.]")
                         }
                     },
-                    _ => return Err(format!("Illegal character {} on line {}, column {} found. Expected valid number, 0-9.", c, self.line, self.column))
+                    State::None => {
+                        let word: String = mem::replace(&mut self.buffer, String::new());
+                        self.tokens.push(Token::NumberLiteral(word));
+                        if let Some(tok) = Token::from_char(c) {
+                            self.tokens.push(tok);
+                        }
+                        State::None
+                    }
+                    // Invalid character
+                    _ => return self.error(c, "valid number [0-9|.]")
                 }
             },
-
+            // Reading literals, any UTF-8 character is valid except for backtick
             State::Escape(escaped) => {
                 match (escaped, c) {
                     (false, '`') => State::Escape(false),
+                    // This is a closing backtick
                     (true, '`') => {
-                        let word: String = mem::replace(&mut self.buffer, String::new());
-                        self.tokens.push(Token::StringLiteral(word));
+                        // Was the backtick escaped? If not, then save the token
+                        if self.last_char != '\\' {
+                            let word: String = mem::replace(&mut self.buffer, String::new());
+                            self.tokens.push(Token::StringLiteral(word));
+                        }
                         State::None
                     },
                     // Any character, any combination
@@ -254,7 +192,7 @@ impl Lexer {
                     },
                 }
             },
-            
+            // Operator or character that needs disambiguation            
             State::Disambiguate => {
                 match (self.last_char, c) {
                     ('-', '-') => State::Comment,
@@ -262,38 +200,72 @@ impl Lexer {
                         self.tokens.push(Token::NOTEQUAL);
                         State::None
                     },
-                    (_, _) => State::None
+                    ('<', '=') => {
+                        self.tokens.push(Token::LESSTHANOREQUAL);
+                        State::None
+                    },
+                    ('>', '=') => {
+                        self.tokens.push(Token::GREATERTHANOREQUAL);
+                        State::None
+                    },
+                    ('>', ' ') => {
+                        self.tokens.push(Token::GREATERTHAN);
+                        State::None
+                    },
+                    ('<', ' ') => {
+                        self.tokens.push(Token::LESSTHAN);
+                        State::None
+                    },
+                    ('|', '|') => {
+                        self.tokens.push(Token::DOUBLEPIPE);
+                        State::None
+                    },
+                    (_, _) => return self.error(c, "matching operator")
                 }
             },
-
+            // Operator. Token was already pushed, transition back to none
             State::Operator => {
                 State::None
             },
         };
+        // Save state, and last character
         self.state = state.clone();
         self.last_char = c;
         Ok(state)        
     }
+
+    pub fn lex(s: &str) -> LexerResult<Parser> {
+        let mut lex = Lexer {
+            state: State::None,
+            tokens: Vec::new(),
+            last_char: ' ',
+            buffer: String::new(),
+            column: 0,
+            line: 0,
+        };
+
+        for c in s.chars() {
+            lex.feed(c)?;
+        };    
+        Ok(Parser::from_tokens(lex.tokens))
+    }
 }
+
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn from_char() {
-        // Valid character
-        assert_eq!(Token::from_char('.'), Some(Token::DOT));
-        // Invalid character
-        assert_eq!(Token::from_char('#'), None);
-    }
 
     #[test]
-    fn from_str() {
-        // Everything is case insensitive
-        assert_eq!(Token::from_str("SEleCT"), Token::SELECT);
-        assert_eq!(Token::from_str("DROP"), Token::DROP);
-        // All identifiers are stored as lower case
-        assert_eq!(Token::from_str("User_id"), Token::Identifier("user_id".into()));
+    fn lex_str() {
+        let mut parser = Lexer::lex("select * from my_table where row_id > 0;").unwrap();
+        let v = vec![Token::SELECT, Token::ASTERISK, Token::FROM, Token::Identifier("my_table".into()),
+                     Token::WHERE, Token::Identifier("row_id".into()), Token::GREATERTHAN, Token::NumberLiteral("0".into()),
+                     Token::SEMICOLON];
+        for tok in v.into_iter() {
+            parser.expect(&tok).unwrap();
+        }        
     }
 
     #[test]
@@ -401,3 +373,4 @@ mod tests {
         assert_eq!(lex.tokens.pop(), Some(Token::SELECT));
     }
 }
+
