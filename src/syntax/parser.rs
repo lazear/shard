@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use super::token::Token;
 
-type ParserResult<T> = Result<T, ParserError>;
+pub type ParserResult<T> = Result<T, ParserError>;
 
 #[derive(Debug)]
 pub enum ParserError {
@@ -27,11 +27,13 @@ impl Parser {
         }
     }
 
+    /// Mandatory pop
     /// Pop the next token off the queue
     pub fn pop(&mut self) -> ParserResult<Token> {
         self.tokens.pop_front().ok_or(ParserError::OutOfTokens)
     }
 
+    /// Optional pop
     /// If the next token is equal to `expecting`, pop it and return true,
     /// otherwise return false and leave the next token  
     pub fn pop_if(&mut self, expecting: &Token) -> bool {
