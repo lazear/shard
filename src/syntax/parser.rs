@@ -6,7 +6,7 @@ pub type ParserResult<T> = Result<T, ParserError>;
 #[derive(Debug)]
 pub enum ParserError {
     Expecting(String),
-    OutOfTokens
+    OutOfTokens,
 }
 
 pub struct Parser {
@@ -35,7 +35,7 @@ impl Parser {
 
     /// Optional pop
     /// If the next token is equal to `expecting`, pop it and return true,
-    /// otherwise return false and leave the next token  
+    /// otherwise return false and leave the next token
     pub fn pop_if(&mut self, expecting: &Token) -> bool {
         let eq = self.peek_is(expecting);
         if eq {
@@ -53,7 +53,9 @@ impl Parser {
         if &tok == expecting {
             Ok(tok)
         } else {
-            Err(ParserError::Expecting(format!("{:?}, found {:?}", tok, expecting)))
+            Err(ParserError::Expecting(
+                format!("{:?}, found {:?}", tok, expecting),
+            ))
         }
     }
 
@@ -63,7 +65,7 @@ impl Parser {
         // would've done an early return with ParserError::OutOfTokens otherwise
         match tok {
             Token::StringLiteral(_) => Ok(tok),
-            _ => Err(ParserError::Expecting(format!("string, found {:?}", tok)))
+            _ => Err(ParserError::Expecting(format!("string, found {:?}", tok))),
         }
     }
 
@@ -73,7 +75,7 @@ impl Parser {
         // would've done an early return with ParserError::OutOfTokens otherwise
         match tok {
             Token::NumberLiteral(_) => Ok(tok),
-            _ => Err(ParserError::Expecting(format!("number, found {:?}", tok)))
+            _ => Err(ParserError::Expecting(format!("number, found {:?}", tok))),
         }
     }
 
@@ -83,13 +85,13 @@ impl Parser {
         // would've done an early return with ParserError::OutOfTokens otherwise
         match tok {
             Token::Identifier(_) => Ok(tok),
-            _ => Err(ParserError::Expecting(format!("identifier, found {:?}", tok)))
+            _ => Err(ParserError::Expecting(
+                format!("identifier, found {:?}", tok),
+            )),
         }
     }
 
     pub fn from_tokens(v: Vec<Token>) -> Parser {
-        Parser {
-            tokens: VecDeque::from(v),
-        }
+        Parser { tokens: VecDeque::from(v) }
     }
 }

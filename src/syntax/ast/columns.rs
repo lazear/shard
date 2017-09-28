@@ -3,7 +3,7 @@ use super::*;
 #[derive(Debug)]
 pub enum Column {
     All,
-    Expr(Token)
+    Expr(Token),
 }
 
 impl Syntax for Column {

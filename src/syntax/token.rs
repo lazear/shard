@@ -53,7 +53,7 @@ pub enum Token {
     AMPERSAND,
     PIPE,
     DOUBLEPIPE,
-    
+
     // literals
     StringLiteral(String),
     NumberLiteral(String),
@@ -79,7 +79,7 @@ impl Token {
             '*' => ASTERISK,
             '&' => AMPERSAND,
             '|' => PIPE,
-            '/' => FORWARDSLASH,       
+            '/' => FORWARDSLASH,
             _ => return None,
         })
     }
@@ -108,9 +108,9 @@ impl Token {
             "int" | "integer" => INTEGER,
             "text" => TEXT,
             "float" => FLOAT,
-            "blob" => BLOB,  
-            _ => Identifier (word),
-        } 
+            "blob" => BLOB,
+            _ => Identifier(word),
+        }
     }
 }
 
@@ -131,6 +131,9 @@ mod tests {
         assert_eq!(Token::from_str("SEleCT"), Token::SELECT);
         assert_eq!(Token::from_str("DROP"), Token::DROP);
         // All identifiers are stored as lower case
-        assert_eq!(Token::from_str("User_id"), Token::Identifier("user_id".into()));
+        assert_eq!(
+            Token::from_str("User_id"),
+            Token::Identifier("user_id".into())
+        );
     }
 }

@@ -39,8 +39,14 @@ pub struct Lexer {
 impl Lexer {
     /// Return an error message
     fn error(&self, c: char, expected: &str) -> LexerResult<State> {
-        Err(format!("Illegal character `{}` encountered on line {}, column {} during lexical analysis. Expected {}", 
-            c, self.line, self.column, expected))
+        Err(format!(
+            "Illegal character `{}` encountered on line {}, \
+            column {} during lexical analysis. Expected {}",
+            c,
+            self.line,
+            self.column,
+            expected
+        ))
     }
 
     /// Retrieve the last lexed token
@@ -49,14 +55,14 @@ impl Lexer {
             Some(self.tokens[self.tokens.len() - 1].clone())
         } else {
             None
-        }        
+        }
     }
 
-    /// Transition to the next state from State::None 
+    /// Transition to the next state from State::None
     fn next_state(&self, c: char) -> LexerResult<State> {
         match c {
             // Identifiers and keywords must start with a letter or underscore
-            'a' ... 'z' | 'A' ... 'Z' | '_' => Ok(State::Text),
+            'a'...'z' | 'A'...'Z' | '_' => Ok(State::Text),
             // numbers must start with a number...
             '0'...'9' => Ok(State::Number),
             // Literals must start with a single apostrophe
@@ -64,7 +70,7 @@ impl Lexer {
             // Whitespace, return None
             ' ' | '\t' | '\n' => Ok(State::None),
             // Other UTF-8 character
-            ';'  => Ok(State::None),
+            ';' => Ok(State::None),
             _ => {
                 let s = "<>|-+()[].,;*&|/=";
                 if let Some(index) = s.find(c) {
@@ -99,7 +105,7 @@ impl Lexer {
                 } else {
                     State::Comment
                 }
-            },
+            }
             // Current state is none, so we are at the beginning, or whitespace
             State::None => {
                 let next = self.next_state(c)?;
@@ -114,12 +120,18 @@ impl Lexer {
                         self.buffer.push(c);
                     }
                     State::Operator => {
-                        self.tokens.push(Token::from_char(c).expect(&format!("Illegal character `{}` encountered on line {}, column {} during lexical analysis. Expected valid operator", c, self.line, self.column)));
+                        self.tokens.push(Token::from_char(c).expect(&format!(
+                            "Illegal character `{}` encountered on line {},\
+                                 column {} during lexical analysis. Expected valid operator",
+                            c,
+                            self.line,
+                            self.column
+                        )));
                     }
                     _ => (),
                 };
                 next
-            },
+            }
             // Current state is text, so we are reading a string
             State::Text => {
                 match self.next_state(c)? {
@@ -127,7 +139,7 @@ impl Lexer {
                     State::Text | State::Number => {
                         self.buffer.push(c);
                         State::Text
-                    },
+                    }
                     // Whitespace
                     State::None => {
                         let word: String = mem::replace(&mut self.buffer, String::new());
@@ -138,9 +150,9 @@ impl Lexer {
                         State::None
                     }
                     // Invalid character
-                    _ => return self.error(c, "valid identifier [a-Z|0-9|_]")
+                    _ => return self.error(c, "valid identifier [a-Z|0-9|_]"),
                 }
-            },
+            }
 
             // Current state is number, so only acceptable chars are 0-9 and '.'
             State::Number => {
@@ -149,7 +161,7 @@ impl Lexer {
                     State::Number => {
                         self.buffer.push(c);
                         State::Number
-                    },
+                    }
                     // Check for decimal place
                     State::Operator => {
                         if c == '.' {
@@ -157,9 +169,9 @@ impl Lexer {
                             State::Number
                         } else {
                             // Invalid character
-                            return self.error(c, "valid number [0-9|.]")
+                            return self.error(c, "valid number [0-9|.]");
                         }
-                    },
+                    }
                     State::None => {
                         let word: String = mem::replace(&mut self.buffer, String::new());
                         self.tokens.push(Token::NumberLiteral(word));
@@ -169,9 +181,9 @@ impl Lexer {
                         State::None
                     }
                     // Invalid character
-                    _ => return self.error(c, "valid number [0-9|.]")
+                    _ => return self.error(c, "valid number [0-9|.]"),
                 }
-            },
+            }
             // Reading literals, any UTF-8 character is valid except for backtick
             State::Escape(escaped) => {
                 match (escaped, c) {
@@ -184,54 +196,52 @@ impl Lexer {
                             self.tokens.push(Token::StringLiteral(word));
                         }
                         State::None
-                    },
+                    }
                     // Any character, any combination
                     (_, _) => {
                         self.buffer.push(c);
                         State::Escape(true)
-                    },
+                    }
                 }
-            },
-            // Operator or character that needs disambiguation            
+            }
+            // Operator or character that needs disambiguation
             State::Disambiguate => {
                 match (self.last_char, c) {
                     ('-', '-') => State::Comment,
                     ('<', '>') => {
                         self.tokens.push(Token::NOTEQUAL);
                         State::None
-                    },
+                    }
                     ('<', '=') => {
                         self.tokens.push(Token::LESSTHANOREQUAL);
                         State::None
-                    },
+                    }
                     ('>', '=') => {
                         self.tokens.push(Token::GREATERTHANOREQUAL);
                         State::None
-                    },
+                    }
                     ('>', ' ') => {
                         self.tokens.push(Token::GREATERTHAN);
                         State::None
-                    },
+                    }
                     ('<', ' ') => {
                         self.tokens.push(Token::LESSTHAN);
                         State::None
-                    },
+                    }
                     ('|', '|') => {
                         self.tokens.push(Token::DOUBLEPIPE);
                         State::None
-                    },
-                    (_, _) => return self.error(c, "matching operator")
+                    }
+                    (_, _) => return self.error(c, "matching operator"),
                 }
-            },
+            }
             // Operator. Token was already pushed, transition back to none
-            State::Operator => {
-                State::None
-            },
+            State::Operator => State::None,
         };
         // Save state, and last character
         self.state = state.clone();
         self.last_char = c;
-        Ok(state)        
+        Ok(state)
     }
 
     pub fn lex(s: &str) -> LexerResult<Parser> {
@@ -246,7 +256,7 @@ impl Lexer {
 
         for c in s.chars() {
             lex.feed(c)?;
-        };    
+        }
         Ok(Parser::from_tokens(lex.tokens))
     }
 }
@@ -260,12 +270,20 @@ mod tests {
     #[test]
     fn lex_str() {
         let mut parser = Lexer::lex("select * from my_table where row_id > 0;").unwrap();
-        let v = vec![Token::SELECT, Token::ASTERISK, Token::FROM, Token::Identifier("my_table".into()),
-                     Token::WHERE, Token::Identifier("row_id".into()), Token::GREATERTHAN, Token::NumberLiteral("0".into()),
-                     Token::SEMICOLON];
+        let v = vec![
+            Token::SELECT,
+            Token::ASTERISK,
+            Token::FROM,
+            Token::Identifier("my_table".into()),
+            Token::WHERE,
+            Token::Identifier("row_id".into()),
+            Token::GREATERTHAN,
+            Token::NumberLiteral("0".into()),
+            Token::SEMICOLON,
+        ];
         for tok in v.into_iter() {
             parser.expect(&tok).unwrap();
-        }        
+        }
     }
 
     #[test]
@@ -319,14 +337,17 @@ mod tests {
             column: 0,
             line: 0,
         };
-        
+
         // Try lexing a string literal
         assert_eq!(lex.feed('`'), Ok(State::Escape(false)));
         for c in "user_id".chars() {
             assert_eq!(lex.feed(c), Ok(State::Escape(true)));
-        };
+        }
         assert_eq!(lex.feed('`'), Ok(State::None));
-        assert_eq!(lex.tokens.pop(), Some(Token::StringLiteral("user_id".into())));
+        assert_eq!(
+            lex.tokens.pop(),
+            Some(Token::StringLiteral("user_id".into()))
+        );
         assert_eq!(lex.column, 9);
     }
 
@@ -344,7 +365,7 @@ mod tests {
         assert_eq!(lex.feed('-'), Ok(State::Comment));
         for c in "line comment".chars() {
             assert_eq!(lex.feed(c), Ok(State::Comment));
-        };
+        }
         assert_eq!(lex.feed('\n'), Ok(State::None));
     }
 
@@ -373,4 +394,3 @@ mod tests {
         assert_eq!(lex.tokens.pop(), Some(Token::SELECT));
     }
 }
-
